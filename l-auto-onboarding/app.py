@@ -19,7 +19,7 @@ from doc_parser import ParseError, detect_mime, parse_documents
 from erp import approval_comment, build_rows, make_excel, mask_account
 from verifier import run_all
 
-VERSION = "v5.0 (Streamlit)"
+VERSION = "v5.1 (Streamlit)"
 MAX_FILE_MB = 10
 MAX_PARSE_PER_SESSION = 20  # 공개 URL 비용 보호: 한 사람이 한 번 접속해서 AI를 부를 수 있는 횟수
 
@@ -355,7 +355,7 @@ if ss.parse_meta:
         else:
             label, value, empty_msg, secret_row = r
             table_rows.append({"label": label, "value": value, "empty": empty_msg,
-                               "shown": mask_account(value) if secret_row else value})
+                               "shown": mask_account(value) if secret_row else value, "secret": secret_row})
     n_rows = len(table_rows)
     erp_html = f"""
 <style>
@@ -364,7 +364,7 @@ table {{width:100%; border-collapse:collapse; font-size:14px;}}
 th {{text-align:left; background:#f2f6fb; color:#344054; font-weight:600; width:34%; padding:7px 10px; border:1px solid #eaecf0;}}
 td {{padding:6px 10px; border:1px solid #eaecf0; word-break:break-all;}}
 td.need {{color:#b54708;}}
-td.c {{width:64px; text-align:center;}}
+td.c {{width:120px; text-align:center; white-space:nowrap;}}
 tr.g th {{background:#e8eef7; color:#1f2328; font-weight:800;}}
 button {{border:1px solid #d0d5dd; background:#fff; border-radius:6px; padding:3px 10px; font-size:12px; cursor:pointer;}}
 button.done {{background:#ecfdf3; color:#067647; border-color:#abefc6;}}
@@ -376,8 +376,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({{"&":"&amp;","<":"&lt;",">"
 document.getElementById("t").innerHTML = rows.map((r, i) => r.group
   ? `<tr class="g"><th colspan="3">${{esc(r.group)}}</th></tr>`
   : `<tr><th>${{esc(r.label)}}</th><td class="${{r.value ? "" : "need"}}">${{esc(r.value ? r.shown : r.empty)}}</td>
-     <td class="c">${{r.value ? `<button data-i="${{i}}">복사</button>` : ""}}</td></tr>`).join("");
-document.querySelectorAll("button").forEach(b => b.addEventListener("click", async () => {{
+     <td class="c">${{r.value && r.secret ? `<button class="peek" data-i="${{i}}">보기</button> ` : ""}}${{r.value ? `<button class="cp" data-i="${{i}}">복사</button>` : ""}}</td></tr>`).join("");
+document.querySelectorAll("button.peek").forEach(b => b.addEventListener("click", () => {{
+  const r = rows[+b.dataset.i], cell = b.closest("tr").children[1];
+  const open = b.textContent === "보기";
+  cell.textContent = open ? r.value : r.shown;
+  b.textContent = open ? "가리기" : "보기";
+}}));
+document.querySelectorAll("button.cp").forEach(b => b.addEventListener("click", async () => {{
   const v = rows[+b.dataset.i].value;
   try {{ await navigator.clipboard.writeText(v); }}
   catch (e) {{ const t = document.createElement("textarea"); t.value = v; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }}
@@ -388,7 +394,7 @@ document.querySelectorAll("button").forEach(b => b.addEventListener("click", asy
 """
     st.iframe(erp_html, height=36 * n_rows + 10)
     st.caption("회사코드·계정그룹·담당자·지급·회계 정보는 서류에 없으므로 ERP에서 직접 입력합니다. "
-               "계좌번호는 가려서 보여주지만 [복사]는 전체 번호를 복사합니다.")
+               "계좌번호는 가려서 보여주며 [보기]로 잠깐 확인할 수 있고, [복사]는 전체 번호를 복사합니다.")
 
     if v:
         st.markdown("**결재 상신 의견 (자동 작성)**")
