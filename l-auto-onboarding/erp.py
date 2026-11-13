@@ -79,7 +79,7 @@ def approval_comment(checks: list) -> str:
     icon = {"pass": "적합", "warn": "주의", "fail": "부적합", "error": "확인불가", "skip": "생략"}
     parts = []
     for c in checks:
-        mock = "(시연용 DB)" if c.get("mode") == "mock" else ""
+        mock = "(시연용)" if c.get("mode") == "mock" and "시연용" not in c["message"] else ""
         parts.append(f"{c['title']}{mock} {icon.get(c['status'], '')}: {c['message']}")
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     return f"[L-Auto 사전검증 {stamp}] " + " / ".join(parts)

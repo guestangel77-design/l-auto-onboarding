@@ -2,6 +2,7 @@
 L-Auto Onboarding - 상신 전 사전 검증 모듈
   0. 사업자번호 형식 검사 (검증번호 계산)      → 실제 작동
   1. 국세청 휴업·폐업 확인 + 과세유형 + 진위확인 → 실제 작동 (공공데이터포털 API)
+                                                 ※ 샘플 가상 번호만 시연용 결과(Mock)
   2. 예금주 ↔ 상호/대표자 일치 확인            → 실제 작동
   3. 압류 DB 대조                              → Mock (샘플 CSV, 준법지원팀 데이터로 교체 예정)
 
@@ -225,12 +226,31 @@ def check_seizure(db_path: str, biz_no: str, mode: str = "mock") -> dict:
 # ---------------------------------------------------------------
 # 전체 실행
 # ---------------------------------------------------------------
-def run_all(nts_key: str, seizure_db: str, biz: dict, bank: dict, seizure_mode: str = "mock") -> dict:
+def demo_nts_checks(info: dict, biz: dict) -> tuple:
+    """샘플(가상) 사업자번호용 국세청 결과 — 🟡 시연용 Mock"""
+    note = " (시연용 가상 번호)"
+    status = [
+        result("nts_state", "국세청 휴업·폐업 확인", "pass", f"{info['state']} (정상 영업 중){note}", mode="mock"),
+        result("nts_tax", "국세청 과세유형 확인", "pass", info["tax"] + note, mode="mock"),
+    ]
+    title = "국세청 진위확인 (번호·대표자·개업일)"
+    same = (biz.get("ceo_name") or "").strip() == info["ceo"] and digits(biz.get("open_date")) == info["open_date"]
+    valid = (result("nts_validate", title, "pass", "국세청 등록 정보와 일치합니다." + note, mode="mock") if same else
+             result("nts_validate", title, "fail", "국세청 등록 정보와 일치하지 않습니다. 대표자명·개업일자를 원본과 대조하세요." + note, mode="mock"))
+    return status, valid
+
+
+def run_all(nts_key: str, seizure_db: str, biz: dict, bank: dict, seizure_mode: str = "mock",
+            demo_nts: dict = None) -> dict:
     fmt = check_biz_format(biz.get("biz_no"))
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f_status = ex.submit(check_nts_status, nts_key, biz.get("biz_no"))
-        f_valid = ex.submit(check_nts_validate, nts_key, biz)
-        status, valid = f_status.result(), f_valid.result()
+    demo = (demo_nts or {}).get(digits(biz.get("biz_no")))
+    if demo:
+        status, valid = demo_nts_checks(demo, biz)
+    else:
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_status = ex.submit(check_nts_status, nts_key, biz.get("biz_no"))
+            f_valid = ex.submit(check_nts_validate, nts_key, biz)
+            status, valid = f_status.result(), f_valid.result()
     checks = [fmt, *status, valid, check_holder(biz, bank), check_seizure(seizure_db, biz.get("biz_no"), seizure_mode)]
 
     blockers = [c for c in checks if c["status"] in ("fail", "error")]

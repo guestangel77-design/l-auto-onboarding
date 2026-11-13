@@ -14,12 +14,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # 같은 폴더�
 import streamlit as st
 
 from address import find_zip
-from demo_data import SAMPLE_SETS, find_demo_result, read_sample
+from demo_data import DEMO_NTS, SAMPLE_SETS, find_demo_result, read_sample
 from doc_parser import ParseError, detect_mime, parse_documents
 from erp import approval_comment, build_rows, make_excel, mask_account
 from verifier import run_all
 
-VERSION = "v5.1 (Streamlit)"
+VERSION = "v5.2 (Streamlit)"
 MAX_FILE_MB = 10
 MAX_PARSE_PER_SESSION = 20  # 공개 URL 비용 보호: 한 사람이 한 번 접속해서 AI를 부를 수 있는 횟수
 
@@ -107,7 +107,7 @@ def do_verify():
     v = form_values()
     biz = {k: v[k] for k, _, _ in BIZ_FIELDS}
     bank = {"account_holder": v["account_holder"]}  # 계좌번호는 검증 서버로 보내지 않는다
-    ss.verify = run_all(C["nts_key"], C["seizure_db"], biz, bank, C["seizure_mode"])
+    ss.verify = run_all(C["nts_key"], C["seizure_db"], biz, bank, C["seizure_mode"], demo_nts=DEMO_NTS)
     ss.verify_stale = False
 
 
@@ -332,9 +332,9 @@ if ss.parse_meta:
         mark = "🔴" if cls == "v-no" else ("🟡" if cls == "v-warn" else "🟢")
         st.markdown(f'<div class="verdict {cls}">{mark} {html.escape(v["verdict"]["message"])}</div>',
                     unsafe_allow_html=True)
-        if any(c["key"] == "nts_state" and "등록되지 않은" in c["message"] for c in v["checks"]):
-            st.caption("ℹ️ 샘플 서류의 사업자번호는 가상 번호라 국세청에서 「미등록」으로 나오는 게 정상입니다. "
-                       "실제 통과 화면은 사업자번호를 공개된 실제 법인 번호로 바꾸고 「검증 다시 실행」을 누르면 볼 수 있어요.")
+        if any(c["key"].startswith("nts") and c.get("mode") == "mock" for c in v["checks"]):
+            st.caption("ℹ️ 샘플 서류의 사업자번호는 가상 번호라서 국세청 3개 항목은 🟡 시연용 결과를 보여줍니다. "
+                       "다른 사업자번호를 입력하고 「검증 다시 실행」을 누르면 실제 국세청 API로 조회합니다.")
 
     # -----------------------------------------------------------
     # 6. ④ ERP 입력용
