@@ -19,7 +19,7 @@ from doc_parser import ParseError, detect_mime, parse_documents
 from erp import approval_comment, build_rows, make_excel, mask_account
 from verifier import run_all
 
-VERSION = "v5.3 (Streamlit)"
+VERSION = "v5.4 (Streamlit)"
 MAX_FILE_MB = 10
 MAX_PARSE_PER_SESSION = 20  # 공개 URL 비용 보호: 한 사람이 한 번 접속해서 AI를 부를 수 있는 횟수
 
@@ -118,7 +118,7 @@ DEMO_ZIP = {"부산중구중앙대로2": "48944"}
 
 def _norm_addr(a: str) -> str:
     a = (a or "").replace("부산광역시", "부산").replace(" ", "")
-    return a.split("(")[0]
+    return a.split("(")[0].split(",")[0]  # "중앙대로 2, 9층 (중앙동7가)"처럼 상세주소가 붙어도 인식
 
 
 def kakao_zip(key: str, address: str) -> dict:
