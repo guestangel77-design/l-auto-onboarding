@@ -19,7 +19,7 @@ from doc_parser import ParseError, detect_mime, parse_documents
 from erp import approval_comment, build_rows, make_excel, mask_account
 from verifier import run_all
 
-VERSION = "v5.4 (Streamlit)"
+VERSION = "v5.2 (Streamlit)"
 MAX_FILE_MB = 10
 MAX_PARSE_PER_SESSION = 20  # 공개 URL 비용 보호: 한 사람이 한 번 접속해서 AI를 부를 수 있는 횟수
 
@@ -55,7 +55,6 @@ def cfg() -> dict:
         "model": secret("CLAUDE_MODEL", "claude-sonnet-5-5") or "claude-sonnet-5-5",
         "nts_key": secret("NTS_API_KEY"),
         "juso_key": secret("JUSO_API_KEY"),
-        "kakao_key": secret("KAKAO_REST_API_KEY"),
         "seizure_db": db,
         "seizure_mode": "mock" if os.path.dirname(db) == os.path.join(BASE_DIR, "samples") else "real",
     }
@@ -112,71 +111,11 @@ def do_verify():
     ss.verify_stale = False
 
 
-# 시연용 Mock: 샘플 주소의 우편번호 (주소 API가 모두 실패했을 때만 사용)
-DEMO_ZIP = {"부산중구중앙대로2": "48944"}
-
-
-def _norm_addr(a: str) -> str:
-    a = (a or "").replace("부산광역시", "부산").replace(" ", "")
-    return a.split("(")[0].split(",")[0]  # "중앙대로 2, 9층 (중앙동7가)"처럼 상세주소가 붙어도 인식
-
-
-def kakao_zip(key: str, address: str) -> dict:
-    """카카오 로컬 API로 우편번호 조회 (해외 서버에서도 작동)"""
-    try:
-        import requests
-        res = requests.get(
-            "https://dapi.kakao.com/v2/local/search/address.json",
-            headers={"Authorization": f"KakaoAK {key}"},
-            params={"query": address, "size": 5},
-            timeout=5,
-        )
-        if res.status_code != 200:
-            return {"zip": "", "status": "error", "message": f"카카오 주소 API 오류 (코드 {res.status_code})"}
-        zips = []
-        for d in res.json().get("documents", []):
-            z = (d.get("road_address") or {}).get("zone_no", "")
-            if z and z not in zips:
-                zips.append(z)
-        if len(zips) == 1:
-            return {"zip": zips[0], "status": "ok", "message": "🟢 카카오 주소 API로 조회했습니다."}
-        if len(zips) > 1:
-            return {"zip": zips[0], "status": "warn",
-                    "message": f"⚠️ 우편번호 후보가 여러 개입니다({', '.join(zips)}). 확인해 주세요."}
-        return {"zip": "", "status": "error", "message": "카카오 주소 API에서 주소를 찾지 못했습니다."}
-    except Exception:
-        return {"zip": "", "status": "error", "message": "카카오 주소 API 응답이 없습니다."}
-
-
 def lookup_zip():
-    addr = ss.f_address_road
-    if not addr.strip():
-        ss.zip_msg = {"zip": "", "status": "error", "message": "도로명 주소를 먼저 입력하세요."}
-        return
-    msgs = []
-    # 1순위: 행정안전부 도로명주소 API
-    if C["juso_key"]:
-        r = find_zip(C["juso_key"], addr)
-        if r.get("zip"):
-            ss.f_zip_code, ss.zip_msg = r["zip"], r
-            return
-        msgs.append(r.get("message", "행정안전부 API 실패"))
-    # 2순위: 카카오 주소 API
-    if C["kakao_key"]:
-        r = kakao_zip(C["kakao_key"], addr)
-        if r.get("zip"):
-            ss.f_zip_code, ss.zip_msg = r["zip"], r
-            return
-        msgs.append(r["message"])
-    # 3순위: 샘플 주소면 시연용 값
-    z = DEMO_ZIP.get(_norm_addr(addr))
-    if z:
-        ss.f_zip_code = z
-        ss.zip_msg = {"zip": z, "status": "ok",
-                      "message": "🟡 시연용 Mock: 주소 API가 응답하지 않아 샘플 주소의 우편번호를 넣었습니다."}
-        return
-    ss.zip_msg = {"zip": "", "status": "error",
-                  "message": " / ".join(msgs + ["우편번호를 직접 입력해 주세요."])}
+    r = find_zip(C["juso_key"], ss.f_address_road)
+    if r["zip"]:
+        ss.f_zip_code = r["zip"]
+    ss.zip_msg = r
 
 
 def mark_stale():
@@ -229,8 +168,7 @@ def badge(text, kind):
 badges = [
     badge("🟢 서류 인식: Claude Vision", "ok") if C["ai_key"] else badge("🟡 서류 인식: 시연 모드(키 없음 · 샘플만)", "mock"),
     badge("🟢 국세청 API", "ok") if C["nts_key"] else badge("⚪ 국세청 API 키 없음", "off"),
-    badge("🟢 우편번호 API" + (" (행안부" + ("+카카오)" if C["kakao_key"] else ")") if C["juso_key"] else " (카카오)"), "ok")
-    if (C["juso_key"] or C["kakao_key"]) else badge("⚪ 우편번호 API 키 없음", "off"),
+    badge("🟢 우편번호 API", "ok") if C["juso_key"] else badge("⚪ 우편번호 API 키 없음", "off"),
     badge("🟡 압류 DB: 시연용 가상 목록", "mock") if C["seizure_mode"] == "mock" else badge("🟢 압류 DB: 준법지원팀 파일", "ok"),
 ]
 st.markdown(" ".join(badges), unsafe_allow_html=True)
@@ -312,7 +250,7 @@ if run:
         for k in ALL_KEYS:
             ss[f"f_{k}"] = (result["biz"].get(k) or result["bank"].get(k) or "") if k != "zip_code" else ""
         ss.zip_msg = None
-        if ss.f_address_road:
+        if C["juso_key"] and ss.f_address_road:
             lookup_zip()
         with st.spinner("국세청 조회와 사전 검증 중..."):
             do_verify()
@@ -347,7 +285,7 @@ if ss.parse_meta:
                 zc1, zc2 = st.columns([2, 1])
                 zc1.text_input(label, key="f_zip_code", on_change=mark_stale)
                 zc2.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-                zc2.button("🔎 우편번호 찾기", on_click=lookup_zip, width="stretch")
+                zc2.button("🔎 우편번호 찾기", on_click=lookup_zip, disabled=not C["juso_key"], width="stretch")
                 if ss.zip_msg:
                     (st.caption if ss.zip_msg["status"] == "ok" else st.warning)(ss.zip_msg["message"])
                 continue
